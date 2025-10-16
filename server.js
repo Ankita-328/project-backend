@@ -18,13 +18,9 @@ app.use(
         allowedHeaders: ["Content-Type", "Authorization"],
     })
 );
-let isConnected=false;
-app.use((req, res, next) => {
-    if (!isConnected) {
-        connectDB();
-    }
-    next();
-})
+
+connectDB();
+    
 
 // Middleware
 app.use(express.json());
