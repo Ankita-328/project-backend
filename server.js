@@ -2,59 +2,57 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
-//const connectDB = require("./config/db");
 const mongoose = require("mongoose");
-const app = express();
-const authRoutes = require('./routes/authRoutes.js');
-const sessionRoutes = require('./routes/sessionRoutes.js');
-const questionRoutes = require('./routes/questionRoutes.js');
+const authRoutes = require("./routes/authRoutes");
+const sessionRoutes = require("./routes/sessionRoutes");
+const questionRoutes = require("./routes/questionRoutes");
 const { protect } = require("./middlewares/authMiddleware");
 const { generateInterviewQuestions, generateConceptExplanation } = require("./controllers/aiController");
 
-// Middleware to handle CORS
-app.use(
-    cors({
-        origin: "*",
-        methods: ["GET", "POST", "PUT", "DELETE"],
-        allowedHeaders: ["Content-Type", "Authorization"],
-    })
-);
-let isConnected = false;
+const app = express();
+
+// ========== DB Connection (optimized for Vercel) ==========
+let cached = global.mongoose;
+if (!cached) {
+  cached = global.mongoose = { conn: null, promise: null };
+}
 
 async function connectDB() {
-    try {
-        await mongoose.connect(process.env.MONGO_URI, {
-            useNewUrlParser: true,
-            useUnifiedTopology: true
-        });
-        isConnected = true;
-        console.log("MongoDB connected");
-    } catch (err) {
-        console.error("Error connecting to MongoDB", err);
-        process.exit(1);
-    }
-};
+  if (cached.conn) return cached.conn;
+  if (!cached.promise) {
+    cached.promise = mongoose.connect(process.env.MONGO_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    }).then((mongoose) => {
+      console.log("✅ MongoDB connected");
+      return mongoose;
+    });
+  }
+  cached.conn = await cached.promise;
+  return cached.conn;
+}
 
-app.use((req, res, next) => {
-    if (!isConnected) {
-        connectDB();
-    }
-    next();
-})
+// Connect once at startup
+connectDB().catch((err) => console.error("MongoDB connection failed:", err));
 
-
-// Middleware
+// ========== Middleware ==========
+app.use(
+  cors({
+    origin: "*",
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
 app.use(express.json());
-// Routes
+
+// ========== Routes ==========
 app.use("/api/auth", authRoutes);
-app.use('/api/sessions', sessionRoutes);
-app.use('/api/questions', questionRoutes);
+app.use("/api/sessions", sessionRoutes);
+app.use("/api/questions", questionRoutes);
 app.use("/api/ai/generate-questions", protect, generateInterviewQuestions);
 app.use("/api/ai/generate-explanation", protect, generateConceptExplanation);
-// Serve uploads folder
-app.use("/uploads", express.static(path.join(__dirname, "uploads"), {}));
-// Start Server
-// const PORT = process.env.PORT || 5000
-// app.listen(PORT, ()=>console.log(`Server running at Port ${PORT}`))
 
-module.exports = app
+// ========== Static folder (not persistent on Vercel) ==========
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+module.exports = app;
